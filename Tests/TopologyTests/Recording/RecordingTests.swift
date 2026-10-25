@@ -1,0 +1,35 @@
+import Foundation
+import Testing
+
+/// The recordings of `Geometry` on real data (five tiles and a road seeding,
+/// Docs/PortingTopologyProgress.md): they read whole, every geometry in them
+/// read in GEOS (its stored answers, `ReplayTests.wkbReading`'s), and the
+/// count of calls of each function is printed, the summary the progress
+/// document keeps. They stay outside git, so these tests run where they
+/// were recorded, with `TOPOLOGY_RECORDINGS` naming their folder.
+@Suite(.enabled(if: Recording.stored, "no recordings or no stored answers at TOPOLOGY_RECORDINGS (see README.md, Tests)"))
+struct RecordingTests {
+    @Test func recordingsReadAndSummarize() throws {
+        var total: [String: Int] = [:]
+        var lines: [String] = []
+        for r in try Recording.load() {
+            var counts: [String: Int] = [:]
+            for c in r.calls {
+                counts[c.name, default: 0] += 1
+                for id in c.geometries { #expect(r.geometries[id] != nil, "\(r.name): \(c.name) refers to geometry \(id)") }
+            }
+            let o = Oracles.make("ReplayTests.wkbReading", .recording(r.name))
+            var unreadable = 0
+            for id in r.geometries.keys.sorted() {
+                if case .failure = o.read(r.input(id)) { unreadable += 1 }
+            }
+            o.finish()
+            #expect(unreadable == 0, "\(r.name): \(unreadable) geometries GEOS cannot read")
+            lines.append("\(r.name): \(r.calls.count) calls, \(r.geometries.count) geometries")
+            for (k, v) in counts { total[k, default: 0] += v }
+        }
+        for (k, v) in total.sorted(by: { $0.value > $1.value }) { lines.append("  \(k) \(v)") }
+        print(lines.joined(separator: "\n"))
+        #expect(!total.isEmpty)
+    }
+}
